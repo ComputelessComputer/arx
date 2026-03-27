@@ -1,0 +1,4 @@
+
+> @arx/desktop@0.1.0 typecheck /Users/johnjeong/Dev/arx/apps/desktop
+> tsc --noEmit
+
