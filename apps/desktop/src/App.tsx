@@ -1,16 +1,28 @@
 import { useDeferredValue, useRef, useState, } from "react";
+import { confirm, } from "@tauri-apps/plugin-dialog";
 import { Check, ListFilter, RefreshCcw, Settings2, } from "lucide-react";
+import { UpdateBanner, } from "./components/UpdateBanner";
 import { SettingsView, } from "./components/mail/SettingsView";
 import { ThreadList, } from "./components/mail/ThreadList";
 import { useMountEffect, } from "./hooks/useMountEffect";
 import {
   bootstrapApp,
   connectAccount,
+  getAccountReconnectDraft,
   loadAiSettings,
+  removeAccount,
   saveAiSettings,
   syncAccount,
+  updateAccountDisplayName,
 } from "./lib/api";
+import {
+  checkForUpdate,
+  consumePendingPostUpdate,
+  type PostUpdateInfo,
+  type UpdateInfo,
+} from "./services/updater";
 import type {
+  AccountReconnectDraft,
   AiSettings,
   AppSnapshot,
   ConnectAccountInput,
@@ -40,6 +52,8 @@ const filterOptions: Array<{ label: string; value: InboxFilter; }> = [
 
 const BACKGROUND_SYNC_INTERVAL_MS = 60_000;
 const BACKGROUND_SYNC_STALE_AFTER_MS = 45_000;
+const AI_SETTINGS_SAVE_DELAY_MS = 300;
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 
 function hasActiveAiKey(settings: AiSettings,) {
   if (settings.provider === "anthropic") {
@@ -76,23 +90,43 @@ export default function App() {
   const showWindowBar = navigator.userAgent.includes("Mac",);
   const [snapshot, setSnapshot,] = useState<AppSnapshot>(EMPTY_SNAPSHOT,);
   const [aiSettings, setAiSettings,] = useState<AiSettings>(EMPTY_AI_SETTINGS,);
+  const [aiSettingsSaving, setAiSettingsSaving,] = useState(false,);
   const [search, setSearch,] = useState("",);
   const [filter, setFilter,] = useState<InboxFilter>("all",);
   const [busy, setBusy,] = useState(false,);
   const [syncing, setSyncing,] = useState(false,);
   const [error, setError,] = useState<null | string>(null,);
+  const [updateInfo, setUpdateInfo,] = useState<UpdateInfo | null>(null,);
+  const [postUpdateInfo, setPostUpdateInfo,] = useState<PostUpdateInfo | null>(null,);
   const [settingsOpen, setSettingsOpen,] = useState(false,);
   const [filterMenuOpen, setFilterMenuOpen,] = useState(false,);
+  const [accountFormOpen, setAccountFormOpen,] = useState(false,);
+  const [accountFormVersion, setAccountFormVersion,] = useState(0,);
+  const [removingAccountId, setRemovingAccountId,] = useState<null | string>(null,);
+  const [renamingAccountId, setRenamingAccountId,] = useState<null | string>(null,);
+  const [reconnectDraft, setReconnectDraft,] = useState<AccountReconnectDraft | null>(null,);
+  const [accountChecks, setAccountChecks,] = useState<Record<string, {
+    message?: string;
+    state: "checking" | "error" | "healthy";
+  }>>({},);
   const deferredSearch = useDeferredValue(search,);
   const filterMenuRef = useRef<HTMLDivElement>(null,);
   const filterMenuOpenRef = useRef(false,);
   const snapshotRef = useRef<AppSnapshot>(EMPTY_SNAPSHOT,);
   const syncingRef = useRef(false,);
+  const aiSettingsRef = useRef(EMPTY_AI_SETTINGS,);
+  const aiSettingsSaveTimeoutRef = useRef<null | number>(null,);
+  const aiSettingsRevisionRef = useRef(0,);
+  const aiSettingsSavedRevisionRef = useRef(0,);
+  const aiSettingsSavingRef = useRef(false,);
+  const aiSettingsSaveAfterCurrentRef = useRef(false,);
 
   filterMenuOpenRef.current = filterMenuOpen;
   snapshotRef.current = snapshot;
+  aiSettingsRef.current = aiSettings;
 
   const aiReady = hasActiveAiKey(aiSettings,);
+  const showAccountForm = snapshot.accounts.length === 0 || accountFormOpen || reconnectDraft !== null;
   const showOnboarding = snapshot.accounts.length === 0;
   const onboardingSteps = [
     {
@@ -152,12 +186,87 @@ export default function App() {
     }
   };
 
+  const applyAiSettings = (nextSettings: AiSettings,) => {
+    setAiSettings(nextSettings,);
+    setFilter((current,) => current === "filtered" && !hasActiveAiKey(nextSettings,) ? "all" : current,);
+  };
+
+  const clearAiSettingsSaveTimeout = () => {
+    if (aiSettingsSaveTimeoutRef.current === null) return;
+    window.clearTimeout(aiSettingsSaveTimeoutRef.current,);
+    aiSettingsSaveTimeoutRef.current = null;
+  };
+
+  const flushAiSettingsSave = async () => {
+    clearAiSettingsSaveTimeout();
+
+    if (aiSettingsSavedRevisionRef.current >= aiSettingsRevisionRef.current) {
+      setAiSettingsSaving(false,);
+      return;
+    }
+
+    if (aiSettingsSavingRef.current) {
+      aiSettingsSaveAfterCurrentRef.current = true;
+      return;
+    }
+
+    aiSettingsSavingRef.current = true;
+    setAiSettingsSaving(true,);
+    setError(null,);
+    let didFail = false;
+
+    try {
+      while (aiSettingsSavedRevisionRef.current < aiSettingsRevisionRef.current) {
+        const revision = aiSettingsRevisionRef.current;
+        const saved = await saveAiSettings(aiSettingsRef.current,);
+        aiSettingsSavedRevisionRef.current = revision;
+        if (revision === aiSettingsRevisionRef.current) {
+          applyAiSettings(saved,);
+        }
+      }
+    } catch (taskError) {
+      didFail = true;
+      setError(getErrorMessage(taskError, "Couldn't save AI settings.",),);
+    } finally {
+      aiSettingsSavingRef.current = false;
+      const shouldContinue = !didFail && (
+        aiSettingsSavedRevisionRef.current < aiSettingsRevisionRef.current
+        || aiSettingsSaveAfterCurrentRef.current
+      );
+      aiSettingsSaveAfterCurrentRef.current = false;
+      if (shouldContinue) {
+        void flushAiSettingsSave();
+        return;
+      }
+
+      setAiSettingsSaving(false,);
+    }
+  };
+
+  const scheduleAiSettingsSave = () => {
+    clearAiSettingsSaveTimeout();
+    setAiSettingsSaving(true,);
+    aiSettingsSaveTimeoutRef.current = window.setTimeout(() => {
+      aiSettingsSaveTimeoutRef.current = null;
+      void flushAiSettingsSave();
+    }, AI_SETTINGS_SAVE_DELAY_MS,);
+  };
+
+  const handleAiSettingsChange = (nextSettings: AiSettings,) => {
+    aiSettingsRevisionRef.current += 1;
+    applyAiSettings(nextSettings,);
+    scheduleAiSettingsSave();
+  };
+
   const reload = async () => {
     const [nextSnapshot, nextAiSettings,] = await Promise.all([bootstrapApp(), loadAiSettings(),]);
     setSnapshot(nextSnapshot,);
-    setAiSettings(nextAiSettings,);
-    if (filter === "filtered" && !hasActiveAiKey(nextAiSettings,)) {
-      setFilter("all",);
+    if (
+      !aiSettingsSavingRef.current
+      && aiSettingsSaveTimeoutRef.current === null
+      && aiSettingsSavedRevisionRef.current >= aiSettingsRevisionRef.current
+    ) {
+      applyAiSettings(nextAiSettings,);
     }
 
     return { nextAiSettings, nextSnapshot, };
@@ -221,7 +330,7 @@ export default function App() {
       }
 
       event.preventDefault();
-      setSettingsOpen(true,);
+      handleOpenSettings();
     };
 
     window.addEventListener("keydown", handleKeyDown,);
@@ -273,26 +382,173 @@ export default function App() {
     };
   });
 
+  useMountEffect(() => () => {
+    clearAiSettingsSaveTimeout();
+  });
+
+  useMountEffect(() => {
+    let cancelled = false;
+
+    void consumePendingPostUpdate()
+      .then((info,) => {
+        if (!cancelled && info) {
+          setPostUpdateInfo(info,);
+          setUpdateInfo(null,);
+        }
+      },)
+      .catch(console.error,);
+
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  useMountEffect(() => {
+    let cancelled = false;
+
+    const pollForUpdate = () => {
+      void checkForUpdate()
+        .then((info,) => {
+          if (!cancelled && info) {
+            setUpdateInfo(info,);
+          }
+        },)
+        .catch(console.error,);
+    };
+
+    pollForUpdate();
+    const intervalId = window.setInterval(pollForUpdate, UPDATE_CHECK_INTERVAL_MS,);
+    window.addEventListener("focus", pollForUpdate,);
+    window.addEventListener("online", pollForUpdate,);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId,);
+      window.removeEventListener("focus", pollForUpdate,);
+      window.removeEventListener("online", pollForUpdate,);
+    };
+  });
+
   const handleConnectAccount = async (input: ConnectAccountInput,) => {
     await withBusy(async () => {
       await connectAccount(input,);
       await reload();
+      setAccountFormOpen(false,);
+      setReconnectDraft(null,);
+      setAccountChecks({},);
     },);
   };
 
-  const handleSaveAiSettings = async () => {
-    await withBusy(async () => {
-      const saved = await saveAiSettings(aiSettings,);
-      setAiSettings(saved,);
-      if (filter === "filtered" && !hasActiveAiKey(saved,)) {
-        setFilter("all",);
-      }
-      setSettingsOpen(false,);
-    },);
+  const handleCloseSettings = () => {
+    setSettingsOpen(false,);
+    setAccountFormOpen(false,);
+    setReconnectDraft(null,);
+    if (aiSettingsSavedRevisionRef.current < aiSettingsRevisionRef.current) {
+      void flushAiSettingsSave();
+    }
   };
 
   const handleSync = async () => {
     await runSync();
+  };
+
+  const handleOpenSettings = () => {
+    setError(null,);
+    setSettingsOpen(true,);
+  };
+
+  const handleCheckAccount = async (accountId: string,) => {
+    setAccountChecks((current,) => ({
+      ...current,
+      [accountId]: { state: "checking", },
+    }),);
+
+    try {
+      await syncAccount(accountId,);
+      await reload();
+      setAccountChecks((current,) => ({
+        ...current,
+        [accountId]: { state: "healthy", },
+      }),);
+    } catch (taskError) {
+      setAccountChecks((current,) => ({
+        ...current,
+        [accountId]: {
+          state: "error",
+          message: getErrorMessage(taskError, "Could not reach this account.",),
+        },
+      }),);
+    }
+  };
+
+  const handleReconnectAccount = async (accountId: string,) => {
+    try {
+      const draft = await getAccountReconnectDraft(accountId,);
+      setReconnectDraft(draft,);
+      setAccountFormVersion((current,) => current + 1,);
+      setAccountFormOpen(true,);
+    } catch (taskError) {
+      setError(getErrorMessage(taskError, "Could not load reconnect details.",),);
+    }
+  };
+
+  const handleOpenConnectAccountForm = () => {
+    setError(null,);
+    setReconnectDraft(null,);
+    setAccountFormVersion((current,) => current + 1,);
+    setAccountFormOpen(true,);
+  };
+
+  const handleCancelConnectAccountForm = () => {
+    setReconnectDraft(null,);
+    setAccountFormOpen(false,);
+  };
+
+  const handleRenameAccount = async (accountId: string, displayName: string,) => {
+    setRenamingAccountId(accountId,);
+    setError(null,);
+
+    try {
+      await updateAccountDisplayName(accountId, displayName.trim(),);
+      await reload();
+    } catch (taskError) {
+      setError(getErrorMessage(taskError, "Could not update this account name.",),);
+      throw taskError;
+    } finally {
+      setRenamingAccountId((current,) => current === accountId ? null : current,);
+    }
+  };
+
+  const handleRemoveAccount = async (account: MailAccount,) => {
+    const label = account.displayName.trim() || account.email;
+    const confirmed = await confirm(
+      `Remove ${label}? This disconnects the inbox and deletes its local mail data from Arx.`,
+      {
+        kind: "warning",
+        okLabel: "Remove",
+        title: "Remove account",
+      },
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setRemovingAccountId(account.id,);
+    setError(null,);
+
+    try {
+      await removeAccount(account.id,);
+      if (reconnectDraft?.accountId === account.id) {
+        setReconnectDraft(null,);
+        setAccountFormOpen(false,);
+      }
+      await reload();
+    } catch (taskError) {
+      setError(getErrorMessage(taskError, "Could not remove this account.",),);
+    } finally {
+      setRemovingAccountId((current,) => current === account.id ? null : current,);
+    }
   };
 
   const emptyMessage = snapshot.accounts.length === 0
@@ -373,7 +629,7 @@ export default function App() {
               <button
                 type="button"
                 className="arx-icon-button"
-                onClick={() => setSettingsOpen(true,)}
+                onClick={handleOpenSettings}
                 aria-keyshortcuts="Meta+,"
                 aria-label="Settings"
                 title="Settings"
@@ -383,6 +639,18 @@ export default function App() {
             </div>
           </div>
         ) : null}
+
+        {postUpdateInfo
+          ? (
+            <UpdateBanner
+              mode="updated"
+              update={postUpdateInfo}
+              onDismiss={() => setPostUpdateInfo(null,)}
+            />
+          )
+          : updateInfo
+            ? <UpdateBanner update={updateInfo} onDismiss={() => setUpdateInfo(null,)} />
+            : null}
 
         <div className="arx-home-shell" onWheelCapture={handleHomeWheel}>
           <section className="arx-search-sticky">
@@ -400,7 +668,7 @@ export default function App() {
                 <button
                   type="button"
                   className="arx-button arx-button-primary"
-                  onClick={() => setSettingsOpen(true,)}
+                  onClick={handleOpenSettings}
                 >
                   Add API key
                 </button>
@@ -415,7 +683,7 @@ export default function App() {
               accountEmailsById={accountEmailsById}
               emptyMessage={emptyMessage}
               onboardingSteps={showOnboarding ? onboardingSteps : undefined}
-              onOpenSettings={showOnboarding ? () => setSettingsOpen(true,) : undefined}
+              onOpenSettings={showOnboarding ? handleOpenSettings : undefined}
               threads={visibleThreads}
             />
           </div>
@@ -426,11 +694,24 @@ export default function App() {
         open={settingsOpen}
         busy={busy}
         accounts={snapshot.accounts}
+        accountChecks={accountChecks}
+        aiSettingsSaving={aiSettingsSaving}
         aiSettings={aiSettings}
-        onAiSettingsChange={setAiSettings}
-        onSaveAiSettings={handleSaveAiSettings}
+        error={error}
+        removingAccountId={removingAccountId}
+        renamingAccountId={renamingAccountId}
+        reconnectDraft={reconnectDraft}
+        accountFormKey={`${accountFormVersion}-${reconnectDraft?.accountId ?? "new-account"}`}
+        showAccountForm={showAccountForm}
+        onAiSettingsChange={handleAiSettingsChange}
+        onCancelConnectAccount={handleCancelConnectAccountForm}
+        onCheckAccount={handleCheckAccount}
         onConnectAccount={handleConnectAccount}
-        onClose={() => setSettingsOpen(false,)}
+        onClose={handleCloseSettings}
+        onOpenConnectAccount={handleOpenConnectAccountForm}
+        onRemoveAccount={handleRemoveAccount}
+        onRenameAccount={handleRenameAccount}
+        onReconnectAccount={handleReconnectAccount}
       />
     </>
   );

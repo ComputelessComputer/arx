@@ -6,10 +6,10 @@ mod store;
 
 use ai::{build_reply_draft, build_suggestion_batch, rewrite_draft_text};
 use models::{
-    ActionRequest, AiSettings, AppSnapshot, ConnectAccountInput, DraftDocument, DraftRewriteTone,
-    MailAccount, ThreadDetail,
+    AccountReconnectDraft, ActionRequest, AiSettings, AppSnapshot, ConnectAccountInput,
+    DraftDocument, DraftRewriteTone, MailAccount, ReconnectImapSettings, ThreadDetail,
 };
-use provider::{adapter_for, MailProviderAdapter};
+use provider::{adapter_for, sync_connected_account, MailProviderAdapter};
 use store::Store;
 use tauri::AppHandle;
 
@@ -45,7 +45,7 @@ fn connect_account(app: AppHandle, input: ConnectAccountInput) -> Result<MailAcc
     let store = app_store(&app)?;
     let adapter = adapter_for(&input.provider);
     let connection = adapter.connect(&store, &input)?;
-    let delta = adapter.sync_delta(&store, &connection.account, None)?;
+    let delta = sync_connected_account(&connection.account, &input)?;
     store.save_sync_delta(
         &connection.account.id,
         &delta.mailboxes,
@@ -71,6 +71,44 @@ fn sync_account(app: AppHandle, account_id: String) -> Result<(), String> {
         &delta.messages,
         &delta.next_cursor,
     )
+}
+
+#[tauri::command]
+fn get_account_reconnect_draft(
+    app: AppHandle,
+    account_id: String,
+) -> Result<AccountReconnectDraft, String> {
+    let store = app_store(&app)?;
+    let account = store.get_account(&account_id)?;
+    let imap = serde_json::from_value::<ReconnectImapSettings>(store.get_account_settings(&account_id)?)
+        .ok();
+
+    Ok(AccountReconnectDraft {
+        account_id: account.id,
+        provider: account.provider,
+        display_name: account.display_name,
+        email: account.email,
+        imap,
+    })
+}
+
+#[tauri::command]
+fn update_account_display_name(
+    app: AppHandle,
+    account_id: String,
+    display_name: String,
+) -> Result<MailAccount, String> {
+    let store = app_store(&app)?;
+    store.update_account_display_name(&account_id, &display_name)?;
+    store.get_account(&account_id)
+}
+
+#[tauri::command]
+fn remove_account(app: AppHandle, account_id: String) -> Result<(), String> {
+    let store = app_store(&app)?;
+    store.delete_account(&account_id)?;
+    let _ = security::delete_account_secret(&account_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -152,7 +190,10 @@ fn rewrite_draft_text_command(text: String, tone: DraftRewriteTone) -> Result<St
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let store = app_store(&app.handle())?;
             store.init()?;
@@ -164,6 +205,9 @@ pub fn run() {
             save_ai_settings,
             connect_account,
             sync_account,
+            get_account_reconnect_draft,
+            update_account_display_name,
+            remove_account,
             get_thread_detail,
             prepare_reply_draft,
             save_draft_command,

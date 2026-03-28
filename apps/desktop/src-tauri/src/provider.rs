@@ -284,6 +284,13 @@ struct SyncThreadBuilder {
     messages: Vec<NormalizedMessage>,
 }
 
+fn missing_account_secret_message(account: &MailAccount) -> String {
+    format!(
+        "This account is missing mail credentials. Reconnect {} to enable real sync.",
+        account.email
+    )
+}
+
 fn connect_account_impl<A: MailProviderAdapter>(
     store: &Store,
     adapter: &A,
@@ -303,7 +310,12 @@ fn connect_account_impl<A: MailProviderAdapter>(
     if imap.imap_port == 0 {
         return Err("IMAP port must be greater than 0.".to_string());
     }
-    if imap.password.trim().is_empty() {
+    let password = if matches!(adapter.provider_kind(), ProviderKind::Gmail) {
+        imap.password.chars().filter(|character| !character.is_whitespace()).collect()
+    } else {
+        imap.password.clone()
+    };
+    if password.trim().is_empty() {
         return Err("Password is required.".to_string());
     }
 
@@ -335,7 +347,7 @@ fn connect_account_impl<A: MailProviderAdapter>(
         "archiveMailbox": archive_mailbox,
     });
     let secret = json!({
-        "password": imap.password,
+        "password": password,
     });
 
     store.upsert_account(&account, &settings)?;
@@ -345,7 +357,15 @@ fn connect_account_impl<A: MailProviderAdapter>(
 }
 
 fn refresh_auth_impl(account: &MailAccount) -> Result<(), String> {
-    security::read_account_secret(&account.id).map(|_| ())
+    security::read_account_secret(&account.id)
+        .map(|_| ())
+        .map_err(|error| {
+            if security::is_missing_secure_storage_error(&error) {
+                missing_account_secret_message(account)
+            } else {
+                error
+            }
+        })
 }
 
 fn read_only_capabilities() -> ProviderCapabilities {
@@ -405,15 +425,46 @@ fn load_imap_settings(
                     account.email
                 )
             })?;
+    let secret_payload = security::read_account_secret(&account.id).map_err(|error| {
+        if security::is_missing_secure_storage_error(&error) {
+            missing_account_secret_message(account)
+        } else {
+            error
+        }
+    })?;
     let secret =
-        serde_json::from_str::<StoredImapSecret>(&security::read_account_secret(&account.id)?)
-            .map_err(|_| {
-                format!(
-                    "This account is missing mail credentials. Reconnect {} to enable real sync.",
-                    account.email
-                )
-            })?;
+        serde_json::from_str::<StoredImapSecret>(&secret_payload)
+            .map_err(|_| missing_account_secret_message(account))?;
     Ok((settings, secret))
+}
+
+pub fn sync_connected_account(
+    account: &MailAccount,
+    input: &ConnectAccountInput,
+) -> Result<SyncDelta, String> {
+    let imap = input
+        .imap
+        .as_ref()
+        .ok_or_else(|| "Mail credentials are required to connect this account.".to_string())?;
+    let password = if matches!(account.provider, ProviderKind::Gmail) {
+        imap.password
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect()
+    } else {
+        imap.password.clone()
+    };
+    let settings = StoredImapSettings {
+        imap_host: imap.imap_host.trim().to_string(),
+        imap_port: imap.imap_port,
+        smtp_host: imap.smtp_host.trim().to_string(),
+        smtp_port: imap.smtp_port,
+        username: imap.username.trim().to_string(),
+        archive_mailbox: imap.archive_mailbox.clone(),
+    };
+    let secret = StoredImapSecret { password };
+
+    sync_imap_account_with_credentials(account, &settings, &secret)
 }
 
 fn sync_imap_account(
@@ -422,6 +473,14 @@ fn sync_imap_account(
     _cursor: Option<&str>,
 ) -> Result<SyncDelta, String> {
     let (settings, secret) = load_imap_settings(store, account)?;
+    sync_imap_account_with_credentials(account, &settings, &secret)
+}
+
+fn sync_imap_account_with_credentials(
+    account: &MailAccount,
+    settings: &StoredImapSettings,
+    secret: &StoredImapSecret,
+) -> Result<SyncDelta, String> {
     let tls = TlsConnector::builder()
         .build()
         .map_err(|err| format!("Failed to build TLS connector: {err}"))?;

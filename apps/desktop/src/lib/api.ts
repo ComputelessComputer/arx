@@ -1,5 +1,6 @@
 import { invoke, } from "@tauri-apps/api/core";
 import type {
+  AccountReconnectDraft,
   ActionRequest,
   AiSettings,
   AppSnapshot,
@@ -28,6 +29,18 @@ export function connectAccount(input: ConnectAccountInput,) {
 
 export function syncAccount(accountId: string,) {
   return invoke<void>("sync_account", { accountId, });
+}
+
+export function getAccountReconnectDraft(accountId: string,) {
+  return invoke<AccountReconnectDraft>("get_account_reconnect_draft", { accountId, });
+}
+
+export function updateAccountDisplayName(accountId: string, displayName: string,) {
+  return invoke<MailAccount>("update_account_display_name", { accountId, displayName, });
+}
+
+export function removeAccount(accountId: string,) {
+  return invoke<void>("remove_account", { accountId, });
 }
 
 export function getThreadDetail(threadId: string,) {

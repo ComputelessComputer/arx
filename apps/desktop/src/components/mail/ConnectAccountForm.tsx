@@ -1,15 +1,18 @@
 import { useState, } from "react";
-import type { ConnectAccountInput, ProviderKind, } from "../../types/mail";
+import { SharpSelectField, } from "./SharpSelectField";
+import type { AccountReconnectDraft, ConnectAccountInput, ProviderKind, } from "../../types/mail";
 
 interface ConnectAccountFormProps {
   busy: boolean;
+  draft?: AccountReconnectDraft | null;
+  onCancel?: () => void;
   onSubmit: (input: ConnectAccountInput,) => Promise<void>;
 }
 
-const providerOptions: Array<{ value: ProviderKind; label: string; }> = [
-  { value: "gmail", label: "Gmail", },
-  { value: "outlook", label: "Outlook", },
-  { value: "imap", label: "IMAP / SMTP", },
+const providerOptions: Array<{ hint: string; value: ProviderKind; label: string; }> = [
+  { value: "gmail", label: "Gmail", hint: "Preset", },
+  { value: "outlook", label: "Outlook", hint: "Preset", },
+  { value: "imap", label: "IMAP / SMTP", hint: "Manual", },
 ];
 
 const presetProviders = {
@@ -38,19 +41,20 @@ const presetProviders = {
   passwordLabel: string;
 }>;
 
-export function ConnectAccountForm({ busy, onSubmit, }: ConnectAccountFormProps,) {
-  const [provider, setProvider,] = useState<ProviderKind>("gmail",);
-  const [displayName, setDisplayName,] = useState("",);
-  const [email, setEmail,] = useState("",);
+export function ConnectAccountForm({ busy, draft = null, onCancel, onSubmit, }: ConnectAccountFormProps,) {
+  const [provider, setProvider,] = useState<ProviderKind>(draft?.provider ?? "gmail",);
+  const [displayName, setDisplayName,] = useState(draft?.displayName ?? "",);
+  const [email, setEmail,] = useState(draft?.email ?? "",);
   const [password, setPassword,] = useState("",);
-  const [imapHost, setImapHost,] = useState("imap.example.com",);
-  const [imapPort, setImapPort,] = useState("993",);
-  const [smtpHost, setSmtpHost,] = useState("smtp.example.com",);
-  const [smtpPort, setSmtpPort,] = useState("465",);
-  const [username, setUsername,] = useState("",);
-  const [archiveMailbox, setArchiveMailbox,] = useState("Archive",);
+  const [imapHost, setImapHost,] = useState(draft?.imap?.imapHost ?? "imap.example.com",);
+  const [imapPort, setImapPort,] = useState(String(draft?.imap?.imapPort ?? 993),);
+  const [smtpHost, setSmtpHost,] = useState(draft?.imap?.smtpHost ?? "smtp.example.com",);
+  const [smtpPort, setSmtpPort,] = useState(String(draft?.imap?.smtpPort ?? 465),);
+  const [username, setUsername,] = useState(draft?.imap?.username ?? "",);
+  const [archiveMailbox, setArchiveMailbox,] = useState(draft?.imap?.archiveMailbox ?? "Archive",);
 
   const preset = provider === "imap" ? null : presetProviders[provider];
+  const isFirstAccountSetup = !draft && !onCancel;
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>,) => {
     event.preventDefault();
@@ -88,36 +92,39 @@ export function ConnectAccountForm({ busy, onSubmit, }: ConnectAccountFormProps,
   };
 
   return (
-    <form className="arx-connect-form" onSubmit={handleSubmit}>
+    <form className="arx-connect-form" onSubmit={handleSubmit} autoComplete="off">
       <div className="arx-panel-header">
-        <div>
-          <p className="arx-eyebrow">Add inbox</p>
-          <h2>Connect a mail account</h2>
+        <div className="arx-panel-header-copy">
+          {draft ? <p className="arx-eyebrow">Reconnect inbox</p> : null}
+          <h2>{draft ? "Reconnect account" : isFirstAccountSetup ? "Connect your first email" : "Connect a mail account"}</h2>
         </div>
-        <p className="arx-muted">
-          Arx syncs real inbox mail over IMAP. Gmail and Outlook use preset server settings.
-        </p>
       </div>
 
-      <label className="arx-field">
-        <span>Provider</span>
-        <select value={provider} onChange={(event,) => setProvider(event.target.value as ProviderKind,)}>
-          {providerOptions.map((option,) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ),)}
-        </select>
-      </label>
+      <SharpSelectField
+        label="Provider"
+        options={providerOptions}
+        value={provider}
+        onChange={setProvider}
+      />
 
       <div className="arx-grid-two">
         <label className="arx-field">
           <span>Display name</span>
-          <input value={displayName} onChange={(event,) => setDisplayName(event.target.value,)} placeholder="Jordan Lee" />
+          <input
+            autoComplete="off"
+            value={displayName}
+            onChange={(event,) => setDisplayName(event.target.value,)}
+            placeholder="Jordan Lee"
+          />
         </label>
         <label className="arx-field">
           <span>Email</span>
-          <input value={email} onChange={(event,) => setEmail(event.target.value,)} placeholder="jordan@example.com" />
+          <input
+            autoComplete="off"
+            value={email}
+            onChange={(event,) => setEmail(event.target.value,)}
+            placeholder="jordan@example.com"
+          />
         </label>
       </div>
 
@@ -126,7 +133,12 @@ export function ConnectAccountForm({ busy, onSubmit, }: ConnectAccountFormProps,
           <p className="arx-muted">{preset.helper}</p>
           <label className="arx-field">
             <span>{preset.passwordLabel}</span>
-            <input type="password" value={password} onChange={(event,) => setPassword(event.target.value,)} />
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(event,) => setPassword(event.target.value,)}
+            />
           </label>
         </>
       ) : (
@@ -154,11 +166,16 @@ export function ConnectAccountForm({ busy, onSubmit, }: ConnectAccountFormProps,
           <div className="arx-grid-two">
             <label className="arx-field">
               <span>Username</span>
-              <input value={username} onChange={(event,) => setUsername(event.target.value,)} />
+              <input autoComplete="off" value={username} onChange={(event,) => setUsername(event.target.value,)} />
             </label>
             <label className="arx-field">
               <span>Password</span>
-              <input type="password" value={password} onChange={(event,) => setPassword(event.target.value,)} />
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(event,) => setPassword(event.target.value,)}
+              />
             </label>
           </div>
           <label className="arx-field">
@@ -168,9 +185,16 @@ export function ConnectAccountForm({ busy, onSubmit, }: ConnectAccountFormProps,
         </>
       )}
 
-      <button type="submit" className="arx-button arx-button-primary" disabled={busy}>
-        {busy ? "Connecting..." : "Connect account"}
-      </button>
+      <div className="arx-form-actions">
+        <button type="submit" className="arx-button arx-button-primary" disabled={busy}>
+          {busy ? (draft ? "Reconnecting..." : "Connecting...") : (draft ? "Reconnect account" : "Connect account")}
+        </button>
+        {onCancel ? (
+          <button type="button" className="arx-button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }

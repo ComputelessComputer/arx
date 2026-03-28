@@ -69,6 +69,89 @@ select {
   -webkit-user-select: none;
 }
 
+.arx-update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-top: 1px solid #e7e5e4;
+  border-bottom: 1px solid #e7e5e4;
+  background: #fafaf9;
+  padding: 0.55rem 1rem;
+}
+
+.arx-update-banner-copy {
+  margin: 0;
+  min-width: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #57534e;
+}
+
+.arx-update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.arx-update-banner-button,
+.arx-update-banner-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  border: 1px solid #d6d3d1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+.arx-update-banner-button {
+  padding: 0 0.6rem;
+}
+
+.arx-update-banner-button:hover,
+.arx-update-banner-close:hover {
+  cursor: pointer;
+}
+
+.arx-update-banner-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.arx-update-banner-button-primary {
+  border-color: #111827;
+  background: #111827;
+  color: #ffffff;
+}
+
+.arx-update-banner-button-primary:hover {
+  background: #1f2937;
+}
+
+.arx-update-banner-button-secondary,
+.arx-update-banner-close {
+  background: #ffffff;
+  color: #57534e;
+}
+
+.arx-update-banner-button-secondary:hover,
+.arx-update-banner-close:hover {
+  background: #f5f5f4;
+}
+
+.arx-update-banner-close {
+  width: 26px;
+  padding: 0;
+}
+
 .arx-window-bar-spacer {
   min-width: 0;
 }
@@ -720,8 +803,6 @@ select {
 .arx-connect-form {
   display: grid;
   gap: 0.85rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e7e5e4;
 }
 
 .arx-panel-header {
@@ -731,6 +812,21 @@ select {
   gap: 1rem;
 }
 
+.arx-panel-header-copy {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 52ch;
+}
+
+.arx-section-header-meta {
+  margin: 0;
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #78716c;
+}
+
 .arx-settings-list {
   gap: 0;
 }
@@ -738,7 +834,7 @@ select {
 .arx-settings-list-item {
   display: grid;
   gap: 0.5rem;
-  justify-items: start;
+  align-items: start;
   padding: 0.85rem 0;
   border-top: 1px solid #e7e5e4;
   background: transparent;
@@ -747,6 +843,233 @@ select {
 .arx-settings-list-item:first-child {
   padding-top: 0;
   border-top: 0;
+}
+
+.arx-settings-list-item-action {
+  gap: 0;
+  padding-top: 0.3rem;
+  padding-bottom: 0;
+  border-top: 0;
+}
+
+.arx-settings-list-copy {
+  display: grid;
+  gap: 0.25rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.arx-settings-account-row:not(.arx-settings-account-row-editing) .arx-settings-list-copy {
+  padding-right: calc(var(--arx-account-actions-width) + var(--arx-account-actions-gap));
+}
+
+.arx-settings-list-row-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #d6d3d1;
+  padding: 0 0.85rem;
+  background: #ffffff;
+  color: #111827;
+  text-align: left;
+  font-size: 0.94rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.arx-settings-list-row-button:hover {
+  border-color: #111827;
+  background: #fafaf9;
+  color: #44403c;
+  cursor: pointer;
+}
+
+.arx-settings-list-row-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.arx-account-name-row,
+.arx-account-name-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.arx-account-name-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.arx-account-name-input {
+  width: min(20rem, 100%);
+  min-height: 34px;
+  border: 1px solid #d6d3d1;
+  background: #ffffff;
+  padding: 0 0.75rem;
+  color: #111827;
+  outline: none;
+}
+
+.arx-account-name-input:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.16);
+}
+
+.arx-settings-account-row {
+  --arx-account-actions-gap: 2.5rem;
+  --arx-account-actions-width: 7.5rem;
+  position: relative;
+  width: 100%;
+  min-height: 3.25rem;
+}
+
+.arx-account-row-actions,
+.arx-form-actions {
+  gap: 0.45rem;
+}
+
+.arx-account-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: var(--arx-account-actions-width);
+}
+
+.arx-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.arx-account-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.5rem;
+  font-size: 0.76rem;
+  color: #78716c;
+}
+
+.arx-account-status {
+  color: #111827;
+}
+
+.arx-account-status-error {
+  color: #b91c1c;
+}
+
+.arx-account-status-detail {
+  color: #78716c;
+}
+
+.arx-inline-button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #57534e;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
+}
+
+.arx-inline-button:hover {
+  color: #111827;
+  cursor: pointer;
+}
+
+.arx-inline-button-danger {
+  color: #b91c1c;
+}
+
+.arx-inline-button-danger:hover {
+  color: #991b1b;
+}
+
+.arx-inline-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.arx-account-action-button {
+  width: 28px;
+  height: 28px;
+  border-color: #e7e5e4;
+  color: #57534e;
+}
+
+.arx-account-action-button:hover:not(:disabled) {
+  border-color: #d6d3d1;
+}
+
+.arx-account-action-button-danger {
+  color: #b91c1c;
+}
+
+.arx-account-action-button-danger:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.arx-account-sync-button {
+  position: relative;
+}
+
+.arx-account-sync-icon-stack {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.arx-account-sync-icon-stack svg {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.arx-account-sync-icon-default {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.arx-account-sync-icon-hover {
+  opacity: 0;
+  transform: scale(0.9) rotate(-8deg);
+}
+
+.arx-account-sync-button:hover:not(:disabled) .arx-account-sync-icon-default,
+.arx-account-sync-button:focus-visible .arx-account-sync-icon-default {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+.arx-account-sync-button:hover:not(:disabled) .arx-account-sync-icon-hover,
+.arx-account-sync-button:focus-visible .arx-account-sync-icon-hover {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.arx-account-error {
+  color: #b91c1c;
+}
+
+.arx-account-row-actions > .arx-button,
+.arx-settings-account-row > .arx-button,
+.arx-account-row-actions > .arx-icon-button,
+.arx-settings-account-row > .arx-icon-button {
+  flex-shrink: 0;
 }
 
 .arx-grid-two {

@@ -298,6 +298,27 @@ pub struct ImapConnectionInput {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReconnectImapSettings {
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub username: String,
+    pub archive_mailbox: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountReconnectDraft {
+    pub account_id: String,
+    pub provider: ProviderKind,
+    pub display_name: String,
+    pub email: String,
+    pub imap: Option<ReconnectImapSettings>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectAccountInput {
     pub provider: ProviderKind,
     pub display_name: String,

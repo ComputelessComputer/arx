@@ -147,6 +147,23 @@ export interface ImapConnectionInput {
   archiveMailbox: null | string;
 }
 
+export interface ReconnectImapSettings {
+  imapHost: string;
+  imapPort: number;
+  smtpHost: string;
+  smtpPort: number;
+  username: string;
+  archiveMailbox: null | string;
+}
+
+export interface AccountReconnectDraft {
+  accountId: string;
+  provider: ProviderKind;
+  displayName: string;
+  email: string;
+  imap: null | ReconnectImapSettings;
+}
+
 export interface ConnectAccountInput {
   provider: ProviderKind;
   displayName: string;

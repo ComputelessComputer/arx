@@ -1,7 +1,10 @@
-import { Check, ChevronDown, X, } from "lucide-react";
-import { useEffect, useRef, useState, } from "react";
+import { Check, PencilLine, Plus, RefreshCcw, Trash2, X, } from "lucide-react";
+import { useEffect, useState, } from "react";
 import { ConnectAccountForm, } from "./ConnectAccountForm";
+import { SharpSelectField, } from "./SharpSelectField";
+import { useNativeContextMenu, } from "../../hooks/useNativeContextMenu";
 import type {
+  AccountReconnectDraft,
   AiProvider,
   AiSettings,
   ConnectAccountInput,
@@ -9,14 +12,30 @@ import type {
 } from "../../types/mail";
 
 interface SettingsViewProps {
+  accountChecks: Record<string, {
+    message?: string;
+    state: "checking" | "error" | "healthy";
+  }>;
   open: boolean;
   busy: boolean;
+  aiSettingsSaving: boolean;
   accounts: MailAccount[];
   aiSettings: AiSettings;
+  error: null | string;
+  removingAccountId: null | string;
+  renamingAccountId: null | string;
+  reconnectDraft: AccountReconnectDraft | null;
+  accountFormKey: string;
+  showAccountForm: boolean;
   onAiSettingsChange: (settings: AiSettings,) => void;
-  onSaveAiSettings: () => Promise<void>;
+  onCancelConnectAccount: () => void;
+  onCheckAccount: (accountId: string,) => Promise<void>;
   onConnectAccount: (input: ConnectAccountInput,) => Promise<void>;
   onClose: () => void;
+  onOpenConnectAccount: () => void;
+  onRemoveAccount: (account: MailAccount,) => Promise<void>;
+  onRenameAccount: (accountId: string, displayName: string,) => Promise<void>;
+  onReconnectAccount: (accountId: string,) => Promise<void>;
 }
 
 const providers: Array<{ label: string; value: AiProvider; }> = [
@@ -51,89 +70,233 @@ function getAiProviderKey(settings: AiSettings, provider: AiProvider,) {
   return settings.anthropicApiKey;
 }
 
-function SharpSelectField<T extends string,>(
+function formatAccountDate(value: string,) {
+  return new Date(value,).toLocaleString(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  },);
+}
+
+function getAccountHealth(
+  account: MailAccount,
+  checks: Record<string, { message?: string; state: "checking" | "error" | "healthy"; }>,
+) {
+  const state = checks[account.id];
+  if (state?.state === "checking") {
+    return {
+      detail: null,
+      message: null,
+      summary: "Checking connection...",
+      tone: "checking" as const,
+    };
+  }
+
+  if (state?.state === "error") {
+    return {
+      detail: null,
+      message: state.message ?? "Arx could not reach this inbox.",
+      summary: "Needs reconnect",
+      tone: "error" as const,
+    };
+  }
+
+  if (state?.state === "healthy" || account.lastSyncedAt) {
+    return {
+      detail: null,
+      message: null,
+      summary: null,
+      tone: "healthy" as const,
+    };
+  }
+
+  return {
+    detail: null,
+    message: null,
+    summary: null,
+    tone: "healthy" as const,
+  };
+}
+
+function ConnectedAccountRow(
   {
-    label,
-    options,
-    value,
-    onChange,
+    account,
+    busy,
+    health,
+    isChecking,
+    isRemoving,
+    isRenaming,
+    onCheckAccount,
+    onRemoveAccount,
+    onReconnectAccount,
+    onRenameAccount,
   }: {
-    label: string;
-    options: Array<{ hint: string; label: string; value: T; }>;
-    value: T;
-    onChange: (value: T,) => void;
+    account: MailAccount;
+    busy: boolean;
+    health: ReturnType<typeof getAccountHealth>;
+    isChecking: boolean;
+    isRemoving: boolean;
+    isRenaming: boolean;
+    onCheckAccount: (accountId: string,) => Promise<void>;
+    onRemoveAccount: (account: MailAccount,) => Promise<void>;
+    onReconnectAccount: (accountId: string,) => Promise<void>;
+    onRenameAccount: (accountId: string, displayName: string,) => Promise<void>;
   },
 ) {
-  const [open, setOpen,] = useState(false,);
-  const rootRef = useRef<HTMLDivElement>(null,);
-  const selected = options.find((option,) => option.value === value) ?? options[0];
+  const [draftName, setDraftName,] = useState(account.displayName,);
+  const [editing, setEditing,] = useState(false,);
+  const hasNameChange = draftName.trim() !== account.displayName.trim();
+  const checkDisabled = busy || isChecking || isRemoving || isRenaming;
+  const reconnectDisabled = busy || isRemoving || isRenaming;
+  const removeDisabled = busy || isRemoving || isRenaming;
+  const editDisabled = busy;
+  const checkLabel = isChecking
+    ? "Checking connection"
+    : health.tone === "error"
+      ? "Check again"
+      : "Check now";
 
-  useEffect(() => {
-    if (!open) return;
+  const handleStartEditing = () => {
+    setDraftName(account.displayName,);
+    setEditing(true,);
+  };
 
-    const handlePointerDown = (event: MouseEvent,) => {
-      if (!rootRef.current?.contains(event.target as Node,)) {
-        setOpen(false,);
-      }
-    };
+  const handleCancelEditing = () => {
+    setDraftName(account.displayName,);
+    setEditing(false,);
+  };
 
-    const handleEscape = (event: KeyboardEvent,) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false,);
-      }
-    };
+  const handleSaveName = async (event: React.FormEvent<HTMLFormElement>,) => {
+    event.preventDefault();
+    try {
+      await onRenameAccount(account.id, draftName,);
+      setEditing(false,);
+    } catch {
+      return;
+    }
+  };
 
-    window.addEventListener("mousedown", handlePointerDown,);
-    window.addEventListener("keydown", handleEscape,);
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown,);
-      window.removeEventListener("keydown", handleEscape,);
-    };
-  }, [open,],);
+  const showContextMenu = useNativeContextMenu([
+    {
+      id: `check-${account.id}`,
+      text: health.tone === "error" ? "Check again" : "Check now",
+      action: () => void onCheckAccount(account.id,),
+      disabled: checkDisabled,
+    },
+    {
+      id: `reconnect-${account.id}`,
+      text: "Reconnect account",
+      action: () => void onReconnectAccount(account.id,),
+      disabled: reconnectDisabled,
+    },
+    {
+      id: `edit-${account.id}`,
+      text: "Edit name",
+      action: handleStartEditing,
+      disabled: editDisabled,
+    },
+    { separator: true, },
+    {
+      id: `remove-${account.id}`,
+      text: isRemoving ? "Removing..." : "Remove account",
+      action: () => void onRemoveAccount(account,),
+      disabled: removeDisabled,
+    },
+  ]);
 
   return (
-    <div ref={rootRef} className="arx-sharp-select">
-      <label className="arx-sharp-select-label">{label}</label>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => setOpen((current,) => !current)}
-        className={`arx-sharp-select-trigger ${open ? "arx-sharp-select-trigger-open" : ""}`}
-      >
-        <span className="arx-sharp-select-copy">
-          <span className="arx-sharp-select-hint">{selected.hint}</span>
-          <span className="arx-sharp-select-value">{selected.label}</span>
-        </span>
-        <ChevronDown className={`arx-sharp-select-icon ${open ? "arx-sharp-select-icon-open" : ""}`} size={16} />
-      </button>
-      {open ? (
-        <div role="listbox" aria-label={label} className="arx-sharp-select-menu">
-          {options.map((option,) => {
-            const isSelected = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                onClick={() => {
-                  onChange(option.value,);
-                  setOpen(false,);
-                }}
-                className={`arx-sharp-select-option ${isSelected ? "arx-sharp-select-option-selected" : ""}`}
-              >
-                <span className="arx-sharp-select-copy">
-                  <span className={`arx-sharp-select-hint ${isSelected ? "arx-sharp-select-hint-selected" : ""}`}>{option.hint}</span>
-                  <span className="arx-sharp-select-value">{option.label}</span>
-                </span>
-                <Check size={16} className={isSelected ? "arx-sharp-select-check" : "arx-sharp-select-check-hidden"} />
-              </button>
-            );
-          },)}
+    <div
+      className="arx-settings-list-item"
+      onContextMenu={editing ? undefined : showContextMenu}
+    >
+      <div className={`arx-settings-account-row ${editing ? "arx-settings-account-row-editing" : ""}`}>
+        <div className="arx-settings-list-copy">
+          {editing ? (
+            <form className="arx-account-name-form" onSubmit={handleSaveName}>
+              <input
+                className="arx-account-name-input"
+                value={draftName}
+                onChange={(event,) => setDraftName(event.target.value,)}
+                placeholder={account.email}
+                autoFocus
+              />
+              <div className="arx-account-name-actions">
+                <button
+                  type="submit"
+                  className="arx-button arx-button-primary"
+                  disabled={busy || isRenaming || !hasNameChange}
+                >
+                  {isRenaming ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  className="arx-button"
+                  onClick={handleCancelEditing}
+                  disabled={isRenaming}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="arx-account-name-row">
+              <strong>{account.displayName || account.email}</strong>
+            </div>
+          )}
+          <p>{account.email}</p>
+          {health.summary || health.detail ? (
+            <div className="arx-account-status-row">
+              {health.summary ? (
+                <span className={`arx-account-status arx-account-status-${health.tone}`}>{health.summary}</span>
+              ) : null}
+              {health.detail ? <span className="arx-account-status-detail">{health.detail}</span> : null}
+            </div>
+          ) : null}
+          {health.message ? <p className="arx-account-error">{health.message}</p> : null}
         </div>
-      ) : null}
+        {editing ? null : (
+          <div className="arx-account-row-actions">
+            <button
+              type="button"
+              className={`arx-icon-button arx-account-action-button arx-account-sync-button ${health.tone === "error" ? "arx-account-action-button-danger" : ""}`}
+              onClick={() => void onCheckAccount(account.id,)}
+              disabled={checkDisabled}
+              aria-label={checkLabel}
+              title={checkLabel}
+            >
+              {isChecking || health.tone === "error" ? (
+                <RefreshCcw size={15} className={isChecking ? "arx-sync-icon-spinning" : undefined} />
+              ) : (
+                <span className="arx-account-sync-icon-stack" aria-hidden="true">
+                  <Check size={15} className="arx-account-sync-icon-default" />
+                  <RefreshCcw size={15} className="arx-account-sync-icon-hover" />
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className="arx-icon-button arx-account-action-button arx-account-action-button-danger"
+              onClick={() => void onRemoveAccount(account,)}
+              disabled={removeDisabled}
+              aria-label={isRemoving ? "Removing account" : "Remove account"}
+              title={isRemoving ? "Removing account" : "Remove account"}
+            >
+              <Trash2 size={15} />
+            </button>
+            <button
+              type="button"
+              className="arx-icon-button arx-account-action-button"
+              onClick={handleStartEditing}
+              disabled={editDisabled}
+              aria-label="Edit account name"
+              title="Edit account name"
+            >
+              <PencilLine size={15} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -142,12 +305,25 @@ export function SettingsView(
   {
     open,
     busy,
+    aiSettingsSaving,
     accounts,
+    accountChecks,
     aiSettings,
+    error,
+    removingAccountId,
+    renamingAccountId,
+    reconnectDraft,
+    accountFormKey,
+    showAccountForm,
     onAiSettingsChange,
-    onSaveAiSettings,
+    onCancelConnectAccount,
+    onCheckAccount,
     onConnectAccount,
     onClose,
+    onOpenConnectAccount,
+    onRemoveAccount,
+    onRenameAccount,
+    onReconnectAccount,
   }: SettingsViewProps,
 ) {
   useEffect(() => {
@@ -166,6 +342,13 @@ export function SettingsView(
   if (!open) return null;
 
   const selectedAiKey = getAiProviderKey(aiSettings, aiSettings.provider,);
+  const latestSyncedAt = accounts
+    .map((account,) => account.lastSyncedAt)
+    .filter((value,) => typeof value === "string")
+    .map((value,) => ({ raw: value, timestamp: Date.parse(value), }))
+    .filter((value,) => !Number.isNaN(value.timestamp,))
+    .sort((left, right,) => right.timestamp - left.timestamp)[0]?.raw ?? null;
+  const accountsHeaderMeta = latestSyncedAt ? `Last synced ${formatAccountDate(latestSyncedAt,)}` : null;
 
   return (
     <div className="arx-settings-view" role="dialog" aria-modal="true" aria-label="Settings">
@@ -179,20 +362,78 @@ export function SettingsView(
         </header>
 
         <div className="arx-settings-content">
+          {error ? <p className="arx-error-banner">{error}</p> : null}
+
+          <section className="arx-settings-section">
+            {accounts.length > 0 ? (
+              <>
+                <div className="arx-section-header">
+                  <div>
+                    <h3>Accounts</h3>
+                  </div>
+                  {accountsHeaderMeta ? <p className="arx-section-header-meta">{accountsHeaderMeta}</p> : null}
+                </div>
+
+                <div className="arx-settings-list">
+                  {accounts.map((account,) => {
+                    const health = getAccountHealth(account, accountChecks,);
+                    const isChecking = accountChecks[account.id]?.state === "checking";
+
+                    return (
+                      <ConnectedAccountRow
+                        key={account.id}
+                        account={account}
+                        busy={busy}
+                        health={health}
+                        isChecking={isChecking}
+                        isRemoving={removingAccountId === account.id}
+                        isRenaming={renamingAccountId === account.id}
+                        onCheckAccount={onCheckAccount}
+                        onRemoveAccount={onRemoveAccount}
+                        onReconnectAccount={onReconnectAccount}
+                        onRenameAccount={onRenameAccount}
+                      />
+                    );
+                  },)}
+                  {!showAccountForm ? (
+                    <div className="arx-settings-list-item arx-settings-list-item-action">
+                      <button
+                        type="button"
+                        className="arx-settings-list-row-button"
+                        onClick={onOpenConnectAccount}
+                        disabled={busy}
+                      >
+                        <Plus size={16} />
+                        Add account
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {showAccountForm ? (
+              <ConnectAccountForm
+                key={accountFormKey}
+                busy={busy}
+                draft={reconnectDraft}
+                onCancel={accounts.length > 0 ? onCancelConnectAccount : undefined}
+                onSubmit={onConnectAccount}
+              />
+            ) : null}
+          </section>
+
           <section className="arx-settings-section">
             <div className="arx-section-header">
               <div>
-                <p className="arx-eyebrow">AI Filter</p>
-                <h3>API keys</h3>
+                <h3>AI</h3>
               </div>
-              <button type="button" className="arx-button arx-button-primary" onClick={() => void onSaveAiSettings()} disabled={busy}>
-                {busy ? "Saving..." : "Save"}
-              </button>
+              {aiSettingsSaving ? (
+                <span role="status" aria-live="polite" className="arx-status-chip">
+                  Saving...
+                </span>
+              ) : null}
             </div>
-
-            <p className="arx-muted">
-              Add the key Arx should use when you switch to the filtered mail view.
-            </p>
 
             <div className="arx-provider-config-panel">
               <SharpSelectField
@@ -229,38 +470,6 @@ export function SettingsView(
                 />
               </label>
             </div>
-          </section>
-
-          <section className="arx-settings-section">
-            <div className="arx-section-header">
-              <div>
-                <p className="arx-eyebrow">Mail</p>
-                <h3>Connected accounts</h3>
-              </div>
-            </div>
-
-            {accounts.length > 0 ? (
-              <div className="arx-settings-list">
-                {accounts.map((account,) => (
-                  <div key={account.id} className="arx-settings-list-item">
-                    <div>
-                      <strong>{account.displayName || account.email}</strong>
-                      <p>{account.email}</p>
-                    </div>
-                    <span className="arx-status-chip arx-status-chip-ready">
-                      <Check size={12} />
-                      Connected
-                    </span>
-                  </div>
-                ),)}
-              </div>
-            ) : (
-              <div className="arx-empty-block">
-                <p>No mail account connected yet.</p>
-              </div>
-            )}
-
-            <ConnectAccountForm busy={busy} onSubmit={onConnectAccount} />
           </section>
         </div>
       </section>

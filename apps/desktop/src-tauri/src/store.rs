@@ -192,6 +192,53 @@ impl Store {
         Ok(())
     }
 
+    pub fn update_account_display_name(
+        &self,
+        account_id: &str,
+        display_name: &str,
+    ) -> Result<(), String> {
+        let connection = self.connect()?;
+        connection
+            .execute(
+                "UPDATE accounts SET display_name = ?1 WHERE id = ?2",
+                params![display_name.trim(), account_id],
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction().map_err(|err| err.to_string())?;
+
+        transaction
+            .execute("DELETE FROM action_log WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM suggestions WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM suggestion_batches WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM drafts WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM messages WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM threads WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM mailboxes WHERE account_id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+        transaction
+            .execute("DELETE FROM accounts WHERE id = ?1", [account_id])
+            .map_err(|err| err.to_string())?;
+
+        transaction.commit().map_err(|err| err.to_string())
+    }
+
     pub fn get_account(&self, account_id: &str) -> Result<MailAccount, String> {
         let connection = self.connect()?;
         let row = connection
