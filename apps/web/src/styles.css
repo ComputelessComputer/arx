@@ -33,6 +33,39 @@ a {
   padding: 40px 0 72px;
 }
 
+.announcement {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  border: 1px solid rgba(138, 90, 32, 0.24);
+  background: rgba(255, 247, 234, 0.9);
+  box-shadow: 0 16px 40px rgba(92, 61, 27, 0.08);
+}
+
+.announcement-label {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8a5a20;
+}
+
+.announcement-copy {
+  margin: 0;
+  font-size: 1rem;
+  color: rgba(22, 22, 22, 0.88);
+}
+
+.announcement-copy a {
+  font-weight: 600;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
 .hero {
   padding: 32px;
   border: 1px solid rgba(22, 22, 22, 0.12);
@@ -133,6 +166,10 @@ a {
   .shell {
     width: min(100% - 20px, 1100px);
     padding-top: 20px;
+  }
+
+  .announcement {
+    padding: 14px;
   }
 
   .hero {
