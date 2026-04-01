@@ -1,7 +1,7 @@
 const notes = [
   "Quiet triage instead of endless sorting.",
   "Editable AI reply drafts before anything leaves your inbox.",
-  "A desktop product and a website that can evolve independently.",
+  "Arx is being prepared for integration into char.com.",
 ];
 
 export default function App() {
@@ -12,7 +12,8 @@ export default function App() {
         <h1>Email should feel lighter.</h1>
         <p className="lede">
           The website now lives beside the desktop app in the same repository,
-          without forcing them into the same build.
+          without forcing them into the same build. Arx is also planned to be
+          integrated into char.com.
         </p>
         <div className="actions">
           <a href="http://localhost:1421">Desktop Dev UI</a>

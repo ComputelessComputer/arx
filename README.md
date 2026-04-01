@@ -8,6 +8,8 @@ Arx is an AI inbox client for people who want a quieter inbox without handing co
 
 It is built around a simple idea: email should feel lighter. The app helps you clear low-signal mail, draft replies faster, and keep the final decision in your hands.
 
+Arx is also being prepared for integration into [char.com](https://char.com).
+
 ## Repo Layout
 
 - `apps/desktop`: Tauri desktop app
