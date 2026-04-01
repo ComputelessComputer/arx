@@ -10,24 +10,6 @@ It is built around a simple idea: email should feel lighter. The app helps you c
 
 > Disclaimer: Arx is an experimental proof-of-concept app, not a production-ready standalone product. This work is intended to be integrated into the [Char repository](https://github.com/fastrepl/char).
 
-## Repo Layout
-
-- `apps/desktop`: Tauri desktop app
-- `apps/web`: website
-
-## Local Development
-
-```bash
-pnpm install
-pnpm tauri dev
-```
-
-For the website:
-
-```bash
-pnpm web
-```
-
 ## Manifesto
 
 - Your inbox should get quieter, not louder.
