@@ -8,7 +8,7 @@ Arx is an AI inbox client for people who want a quieter inbox without handing co
 
 It is built around a simple idea: email should feel lighter. The app helps you clear low-signal mail, draft replies faster, and keep the final decision in your hands.
 
-Arx is also being prepared for integration into [char.com](https://char.com).
+> Disclaimer: Arx is an experimental proof-of-concept app, not a production-ready standalone product. This work is intended to be integrated into the [Char repository](https://github.com/fastrepl/char).
 
 ## Repo Layout
 
@@ -74,7 +74,7 @@ Arx is designed around `suggest + confirm`. Archive, read/unread changes, stars,
 
 ## Current Status
 
-Arx is in early preview.
+Arx is in early preview as an experimental proof-of-concept.
 
 The current build already has the desktop app shell, local cache, AI review queue, and rich-text reply composer. Live Gmail, Outlook, and IMAP syncing are still being finished, so this version should be treated as a product preview rather than a fully production-ready mail client.
 
